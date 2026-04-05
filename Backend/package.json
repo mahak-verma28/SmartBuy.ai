@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jest --passWithNoTests"
   },
   "keywords": [],
   "author": "",
@@ -19,9 +19,15 @@
     "jsonwebtoken": "^9.0.3",
     "mongodb-memory-server": "^11.0.1",
     "mongoose": "^9.3.3",
+    "node-cron": "^4.2.1",
     "puppeteer": "^24.40.0",
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
     "smartbuy-database": "file:../DataBase"
+  },
+  "devDependencies": {
+    "jest": "^30.3.0",
+    "jest-environment-node": "^30.3.0",
+    "supertest": "^7.2.2"
   }
 }

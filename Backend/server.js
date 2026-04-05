@@ -8,6 +8,7 @@ const wishlistRoutes = require('./routes/wishlist');
 const historyRoutes  = require('./routes/history');
 const searchRoutes   = require('./routes/search');
 const alertRoutes    = require('./routes/alerts');
+const cronScraper    = require('./services/cronScraper');
 
 const app  = express();
 const PORT = process.env.PORT || 5000;
@@ -111,6 +112,7 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
     mongoose.connection.once('open', resolve);
   });
   await seedDemoUser();
+  cronScraper.start();
   app.listen(PORT, () => {
     console.log(`✔  Server running on http://localhost:${PORT}`);
   });

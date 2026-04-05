@@ -1,21 +1,27 @@
 const express      = require('express');
 const router       = express.Router();
-const { scrapeAllPlatforms } = require('../utils/scraper');
+const { scrapeAllPlatforms }  = require('../utils/scraper');
+const { getRecommendation }   = require('../services/recommendationEngine');
 const Product      = require('../../DataBase/models/Product');
 const PriceHistory = require('../../DataBase/models/PriceHistory');
 const { randomUUID } = require('crypto');
+const { generatePrixHistoryToken } = require('../utils/tokenGenerator');
 
 // ── In-memory job store ────────────────────────────────────────────────────────
 // { jobId: { status: 'pending'|'done'|'error', payload, createdAt } }
 const jobs = new Map();
 
 // Clean up completed jobs older than 10 minutes
-setInterval(() => {
+const cleanupInterval = setInterval(() => {
   const cutoff = Date.now() - 10 * 60 * 1000;
   for (const [id, job] of jobs.entries()) {
     if (job.createdAt < cutoff) jobs.delete(id);
   }
 }, 60_000);
+
+// Export for test cleanup
+router._cleanupInterval = cleanupInterval;
+router._jobsMap = jobs;
 
 // ── Shared payload builder ─────────────────────────────────────────────────────
 function buildStoreMap() {
@@ -53,51 +59,20 @@ async function buildPayload(query, livePrices, isCached) {
   if (leaderStore) leaderStore.isLowest = true;
   if (bestPrice === Infinity) bestPrice = null;
 
-  // Chart data
-  let chartData = [];
-  try {
-    const history = await PriceHistory.getHistory(query, 30);
-    if (history.length >= 2 && bestPrice) {
-      const weekMap = {};
-      history.forEach(h => {
-        const week = `W${Math.ceil(new Date(h.recordedAt).getDate() / 7)}`;
-        if (!weekMap[week] || h.price < weekMap[week]) weekMap[week] = h.price;
-      });
-      chartData = Object.entries(weekMap).map(([label, value]) => ({ label, value }));
-      chartData.push({ label: 'TODAY',     value: bestPrice });
-      chartData.push({ label: 'PREDICTED', value: Math.round(bestPrice * 0.9) });
-    } else if (bestPrice) {
-      chartData = [
-        { label: 'JAN',       value: Math.round(bestPrice * 1.1) },
-        { label: 'MAR',       value: Math.round(bestPrice * 1.15) },
-        { label: 'MAY',       value: Math.round(bestPrice * 0.95) },
-        { label: 'JUL',       value: Math.round(bestPrice * 1.05) },
-        { label: 'TODAY',     value: bestPrice },
-        { label: 'PREDICTED', value: Math.round(bestPrice * 0.9) },
-      ];
-    }
-  } catch (_) { /* ignore */ }
-
-  const dropAmount  = bestPrice ? Math.round(bestPrice * 0.05) : null;
+  // ── AI recommendation + real history chart data ──────────────────
+  const recommendation = await getRecommendation(query, livePrices);
 
   return {
     title:               query,
-    subtitle:            livePrices._source === 'agent'
-      ? `Verified by SmartBuy AI agent (Groq + Playwright) for ${query}.`
-      : `Realtime scrape analysis for ${query}.`,
+    subtitle:            `Realtime scrape analysis for ${query}.`,
     pipelineSource:      livePrices._source || 'unknown',
     trend:               bestPrice ? 'Dropping' : 'No Data',
     currentBestPrice:    bestPrice,
     priceDropPercentage: bestPrice ? -4.2 : null,
     cached:              !!isCached,
-    rating: {
-      score:   8.4,
-      message: dropAmount
-        ? `Our AI suggests waiting 2 more weeks. We predict a ₹${dropAmount.toLocaleString('en-IN')} drop in the upcoming festival sale.`
-        : `No live prices found. Try a more specific product name or model number.`,
-    },
-    marketComparison: competitors,
-    chartData,
+    aiRecommendation:    recommendation,
+    historyPoints:       recommendation.historyPoints || [],
+    marketComparison:    competitors,
     specs: ['Authentic Model', 'Verified Scrape', 'Realtime Node Execution'],
     flashDeal:        { title: 'Extra 5% Off', subtitle: 'Bank Cards Only' },
     refurbishedPrice: bestPrice ? Math.round(bestPrice * 0.82) : null,
@@ -108,14 +83,13 @@ async function buildPayload(query, livePrices, isCached) {
 async function runScrapeJob(jobId, query, queryLower) {
   try {
     const livePrices = await scrapeAllPlatforms(query);
-    const pipelineUsed = livePrices._source === 'agent' ? '🤖 Agentic' : '📡 Decodo';
-    console.log(`[Job ${jobId}] ${pipelineUsed} done for "${query}"`);
+    console.log(`[Job ${jobId}] 📡 Decodo scrape done for "${query}"`);
 
     // Persist to cache
     const results = buildStoreMap().map(s => ({
       store: s.store,
-      price: livePrices[s.key]?.price || null,
-      url:   livePrices[s.key]?.url   || '',
+      price: livePrices?.[s.key]?.price || null,
+      url:   livePrices?.[s.key]?.url   || '',
     }));
     const validResults = results.filter(r => r.price !== null);
     const bestPrice    = validResults.length ? Math.min(...validResults.map(r => r.price)) : null;
@@ -150,7 +124,10 @@ async function runScrapeJob(jobId, query, queryLower) {
 //   • { status: 'cached', payload }  — if MongoDB cache hit (<100ms)
 //   • { status: 'pending', jobId }   — if fresh scrape started in background
 router.get('/', async (req, res) => {
-  const query      = (req.query.q || 'Unknown Product').trim();
+  if (!req.query.q || !req.query.q.trim()) {
+    return res.status(400).json({ error: 'Query parameter "q" is required' });
+  }
+  const query      = req.query.q.trim();
   const queryLower = query.toLowerCase();
 
   // ── Cache check — returns in <100ms ──────────────────────────────
@@ -202,6 +179,113 @@ router.get('/status/:jobId', (req, res) => {
   if (job.status === 'pending') return res.json({ status: 'pending' });
   if (job.status === 'error')   return res.json({ status: 'error', error: job.error });
   return res.json({ status: 'done', payload: job.payload });
+});
+
+// ── POST /api/search/prixhistory ──────────────────────────────────────────────
+// Generates highly realistic multi-platform fake price history using Groq AI
+router.post('/prixhistory', async (req, res) => {
+  try {
+    const { query, currentPrice, platformPrices } = req.body;
+    if (!query) {
+      return res.status(400).json({ error: 'Missing query' });
+    }
+
+    if (!process.env.GROQ_API_KEY) {
+      throw new Error("Missing GROQ_API_KEY in backend environment");
+    }
+
+    const basePrice = parseInt(String(currentPrice).replace(/[^0-9]/g, ''), 10) || 500;
+    const pricesInfo = platformPrices ? JSON.stringify(platformPrices) : `Approx baseline ₹${basePrice}`;
+    
+    // Generating instructions for the LLM graph
+    const systemPrompt = `You are a professional market intelligence engine. Your goal is to produce a 12-month multi-vendor price analysis for "${query}".
+
+WEB-SCRAPER ACTUALS (PRESENT PRICE FOR SEPTEMBER): ${pricesInfo}.
+If a specific platform is NOT in the data, estimate its price logically (Market Baseline: ₹${basePrice}).
+
+STRICT JSON SKELETON (DO NOT MODIFY THE LABELS):
+{
+  "labels": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+  "amazon": [12_integers],
+  "flipkart": [12_integers],
+  "myntra": [12_integers],
+  "ajio": [12_integers],
+  "meesho": [12_integers]
+}
+
+SPECIFIC RULES:
+1. Every price array MUST have 12 integer values.
+2. Index 8 (Sep) for "amazon" and "flipkart" MUST match the scraped prices provided.
+3. Use only LOWERCASE keys for platform names.
+4. Output ONLY the raw JSON object. No other text.
+`;
+
+    console.log("[Groq Proxy] Requesting for:", query, "@", basePrice);
+    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "llama-3.1-8b-instant",
+        messages: [{ role: "user", content: systemPrompt }],
+        response_format: { type: "json_object" },
+        temperature: 0.1
+      })
+    });
+
+    if (!groqRes.ok) {
+        const errorText = await groqRes.text();
+        console.error("[Groq API Error Status]", groqRes.status);
+        console.error("[Groq API Error Response]", errorText);
+        throw new Error(`Groq API Error: ${groqRes.status}`);
+    }
+
+    const data = await groqRes.json();
+    console.log("[Groq Response Received]");
+    let graphData;
+    
+    try {
+        let rawContent = data.choices[0].message.content.trim();
+        console.log("[Groq Raw Content Length]:", rawContent.length);
+
+        // Robustly strip any markdown JSON code block markers if present
+        if (rawContent.startsWith("```")) {
+           rawContent = rawContent.replace(/^```json\s*|^```\s*|```\s*$/g, "").trim();
+        }
+
+        // HEALING: Fix potential missing commas if AI returns [100 200 300]
+        rawContent = rawContent.replace(/(\d+)\s+(\d+)/g, "$1, $2");
+
+        graphData = JSON.parse(rawContent);
+
+        // HEALING: Force valid labels and platforms
+        const standardLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        if (!graphData.labels || !Array.isArray(graphData.labels) || graphData.labels.length !== 12) {
+          graphData.labels = standardLabels;
+        }
+
+        const platforms = ["amazon", "flipkart", "myntra", "ajio", "meesho"];
+        platforms.forEach(p => {
+          if (!graphData[p] || !Array.isArray(graphData[p])) {
+            graphData[p] = new Array(12).fill(basePrice);
+          } else if (graphData[p].length < 12) {
+            while(graphData[p].length < 12) graphData[p].push(basePrice);
+          }
+        });
+        
+        console.log("[Groq JSON Healed & Validated]");
+    } catch(err) {
+        console.error("[Groq JSON Healing/Parse Error]", err);
+        throw new Error("Groq returned invalid or unhealable JSON");
+    }
+
+    res.json(graphData);
+  } catch (error) {
+    console.error("[Groq Fake Graph Error]", error);
+    res.status(500).json({ error: "Failed to generate price history" });
+  }
 });
 
 module.exports = router;

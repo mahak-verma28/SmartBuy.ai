@@ -600,9 +600,86 @@ header, main, footer {
   .cta-content h2 {
     font-size: 2.2rem;
   }
-  .footer-content {
+  .footer-links {
     flex-direction: column;
-    gap: 24px;
-    text-align: center;
+    gap: 16px;
   }
+}
+
+/* LOGIN MODAL STYLES */
+.login-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(18, 59, 94, 0.4);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  animation: fadeIn 0.3s ease;
+}
+
+.login-modal-card {
+  background: white;
+  padding: 48px 40px;
+  border-radius: 32px;
+  max-width: 440px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.15);
+  animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal-icon-header {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 24px;
+}
+
+.lock-icon-bg {
+  width: 72px;
+  height: 72px;
+  background: #f0f7ff;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-modal-card h2 {
+  font-size: 1.8rem;
+  color: #123b5e;
+  margin-bottom: 16px;
+  font-weight: 800;
+}
+
+.login-modal-card p {
+  color: #5e7a96;
+  line-height: 1.6;
+  margin-bottom: 32px;
+  font-size: 1.05rem;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+}
+
+.modal-actions button {
+  flex: 1;
+  padding: 14px 0;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
 }

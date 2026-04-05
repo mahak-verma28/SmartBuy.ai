@@ -2,8 +2,7 @@
 
 # ===================================================================
 #                   SmartBuy.AI  —  Start Script
-#  Starts: MongoDB + AI Agent (Python/FastAPI) + Backend (Node/Express)
-#          + Frontend (Vite)
+#  Starts: MongoDB + Backend (Node/Express) + Frontend (Vite)
 # ===================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -48,31 +47,6 @@ else
   log_warn "mongod binary not found in PATH (MongoDB may still be running as a service)"
 fi
 
-# ── Python / venv check ──────────────────────────────────────────────
-AGENT_DIR="$SCRIPT_DIR/Backend/agent"
-VENV_DIR="$AGENT_DIR/.venv"
-PYTHON_BIN=""
-
-# Prefer venv python, then python3, then python
-if [ -f "$VENV_DIR/bin/python" ]; then
-  PYTHON_BIN="$VENV_DIR/bin/python"
-  AGENT_UVICORN="$VENV_DIR/bin/uvicorn"
-elif command -v python3 &>/dev/null; then
-  PYTHON_BIN="$(command -v python3)"
-  AGENT_UVICORN="uvicorn"
-elif command -v python &>/dev/null; then
-  PYTHON_BIN="$(command -v python)"
-  AGENT_UVICORN="uvicorn"
-fi
-
-AGENT_AVAILABLE=false
-if [ -n "$PYTHON_BIN" ]; then
-  log_info "Python   $($PYTHON_BIN --version 2>&1)"
-  AGENT_AVAILABLE=true
-else
-  log_warn "Python not found — AI Agent will be skipped (legacy Decodo fallback active)"
-fi
-
 # ── Step 0: MongoDB ──────────────────────────────────────────────────
 log_section "[ 0/3 ] Ensuring MongoDB is running"
 
@@ -102,63 +76,8 @@ else
   fi
 fi
 
-# ── Step 1: Python AI Agent ──────────────────────────────────────────
-AGENT_PID=""
-log_section "[ 1/3 ] Starting AI Agent  (Python FastAPI — Groq + Playwright)"
-
-if [ "$AGENT_AVAILABLE" = true ]; then
-
-  # ── Create venv if it doesn't exist ──
-  if [ ! -d "$VENV_DIR" ]; then
-    log_warn "Python venv not found — creating $VENV_DIR ..."
-    $PYTHON_BIN -m venv "$VENV_DIR"
-    log_info "venv created"
-  fi
-
-  # ── Install / upgrade requirements ──
-  if [ ! -f "$VENV_DIR/.requirements_installed" ] || \
-     [ "$AGENT_DIR/requirements.txt" -nt "$VENV_DIR/.requirements_installed" ]; then
-    log_warn "Installing Python agent dependencies (this may take 1-2 min first time)..."
-    "$VENV_DIR/bin/pip" install --quiet --upgrade pip
-    "$VENV_DIR/bin/pip" install --quiet -r "$AGENT_DIR/requirements.txt"
-    touch "$VENV_DIR/.requirements_installed"
-    log_info "Python dependencies installed"
-
-    # Install Playwright Chromium browser binary
-    log_warn "Installing Playwright Chromium browser (one-time, ~130 MB)..."
-    "$VENV_DIR/bin/python" -m playwright install chromium 2>/dev/null || true
-    log_info "Playwright Chromium ready"
-  fi
-
-  # ── Kill any stale process on port 5001 ──
-  if lsof -ti :5001 &>/dev/null; then
-    log_warn "Port 5001 already in use — clearing stale process..."
-    lsof -ti :5001 | xargs kill -9 2>/dev/null || true
-    sleep 2
-  fi
-
-  # ── Launch the FastAPI sidecar (CWD-independent via --app-dir) ──
-  PYTHONUNBUFFERED=1 "$VENV_DIR/bin/uvicorn" main_agent:app \
-    --host 0.0.0.0 --port 5001 --log-level warning \
-    --app-dir "$AGENT_DIR" \
-    > /tmp/smartbuy_agent.log 2>&1 &
-  AGENT_PID=$!
-  sleep 6
-
-  if kill -0 "$AGENT_PID" 2>/dev/null; then
-    log_info "AI Agent  started  (PID ${BOLD}$AGENT_PID${RESET}) → http://localhost:5001"
-  else
-    log_warn "AI Agent failed to start — backend will use Decodo fallback"
-    log_warn "Agent log: $(cat /tmp/smartbuy_agent.log 2>/dev/null | tail -5)"
-    AGENT_PID=""
-  fi
-
-else
-  log_warn "Skipping AI Agent — no Python found"
-fi
-
-# ── Step 2: Backend ──────────────────────────────────────────────────
-log_section "[ 2/3 ] Starting Backend  (Node/Express + MongoDB)"
+# ── Step 1: Backend ──────────────────────────────────────────────────
+log_section "[ 1/2 ] Starting Backend  (Node/Express + MongoDB)"
 
 BACKEND_DIR="$SCRIPT_DIR/Backend"
 
@@ -184,7 +103,7 @@ fi
 log_info "Backend  started  (PID ${BOLD}$BACKEND_PID${RESET})"
 
 # ── Step 3: Frontend ─────────────────────────────────────────────────
-log_section "[ 3/3 ] Starting Frontend  (Vite dev server)"
+log_section "[ 2/2 ] Starting Frontend  (Vite dev server)"
 
 FRONTEND_DIR="$SCRIPT_DIR/Frontent"
 
@@ -221,11 +140,6 @@ echo -e "${CYAN}${BOLD}=========================================================
 echo -e "${GREEN}${BOLD}  ✔  All services are running!${RESET}"
 echo ""
 echo -e "     Database  (MongoDB)     →  ${BOLD}mongodb://127.0.0.1:27017/smartbuy_db${RESET}"
-if [ -n "$AGENT_PID" ]; then
-echo -e "     AI Agent  (Groq+PW)     →  ${BOLD}http://localhost:5001${RESET}    PID $AGENT_PID"
-else
-echo -e "     AI Agent                →  ${YELLOW}Not running — Decodo fallback active${RESET}"
-fi
 echo -e "     Backend  (API)          →  ${BOLD}http://localhost:5000${RESET}    PID $BACKEND_PID"
 echo -e "     Frontend (UI)           →  ${BOLD}http://localhost:5173${RESET}    PID $FRONTEND_PID"
 echo ""
@@ -237,10 +151,9 @@ echo ""
 cleanup() {
   echo ""
   echo -e "${YELLOW}Shutting down SmartBuy services...${RESET}"
-  [ -n "$AGENT_PID" ]    && kill "$AGENT_PID"    2>/dev/null || true
+  [ -n "$AGENT_PID" ] 2>/dev/null || true
   kill "$BACKEND_PID"  2>/dev/null || true
   kill "$FRONTEND_PID" 2>/dev/null || true
-  [ -n "$AGENT_PID" ]    && wait "$AGENT_PID"    2>/dev/null || true
   wait "$BACKEND_PID"  2>/dev/null || true
   wait "$FRONTEND_PID" 2>/dev/null || true
   # Only stop mongod if we started it

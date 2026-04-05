@@ -21,6 +21,7 @@ function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [history, setHistory] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -43,7 +44,11 @@ function Home() {
   };
 
   const handleAnalyze = async () => {
-    if (!searchQuery || !user) return;
+    if (!searchQuery) return;
+    if (!user) {
+      setShowLoginModal(true);
+      return;
+    }
     setIsSearching(true);
     try {
       const res = await fetch('http://localhost:5000/api/history', {
@@ -126,7 +131,7 @@ function Home() {
               <button className="action-btn" title="Scan Barcode"><CameraIcon /></button>
               <button className="action-btn" title="Voice Search"><MicIcon /></button>
               <button className="action-btn" title="Paste Link"><LinkIcon /></button>
-              <button className="btn-primary analyze-btn" onClick={handleAnalyze} disabled={isSearching || !user}>
+              <button className="btn-primary analyze-btn" onClick={handleAnalyze} disabled={isSearching}>
                 {isSearching ? 'ANALYZING...' : 'ANALYZE'}
               </button>
             </div>
@@ -232,6 +237,29 @@ function Home() {
           </div>
         </div>
       </footer>
+
+      {/* Premium Login Required Modal */}
+      {showLoginModal && (
+        <div className="login-modal-overlay" onClick={() => setShowLoginModal(false)}>
+          <div className="login-modal-card" onClick={e => e.stopPropagation()}>
+            <div className="modal-icon-header">
+              <div className="lock-icon-bg">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+              </div>
+            </div>
+            <h2>Login Required</h2>
+            <p>SmartBuy uses advanced AI to track prices across platforms. To access these insights and save your history, please sign in.</p>
+            <div className="modal-actions">
+              <button className="btn-outline" onClick={() => setShowLoginModal(false)}>Maybe Later</button>
+              <Link to="/auth" style={{ textDecoration: 'none' }}>
+                <button className="btn-primary sign-up-btn">Sign In Now</button>
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
