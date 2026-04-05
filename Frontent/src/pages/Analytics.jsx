@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { API_BASE } from '../config';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -333,7 +334,7 @@ function AIRecommendationCard({ recommendation, query, currentPrice, user }) {
   const handleSetAlert = async () => {
     if (!alertPrice || !user) return;
     try {
-      const res = await fetch('http://localhost:5000/api/alerts', {
+      const res = await fetch(`${API_BASE}/alerts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${user.token}` },
         body: JSON.stringify({ query, targetPrice: Number(alertPrice), currentPrice: currentPrice || null }),
@@ -438,7 +439,7 @@ function Analytics() {
     const currentPrice = data?.bestMatch?.price || 500;
 
     try {
-      const res = await fetch('http://localhost:5000/api/search/prixhistory', {
+      const res = await fetch(`${API_BASE}/search/prixhistory`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: query || data?.bestMatch?.title, currentPrice, platformPrices })
@@ -491,7 +492,7 @@ function Analytics() {
   useEffect(() => {
     if (!query) return;
     const fetchAndPoll = async () => {
-      const res = await fetch(`http://localhost:5000/api/search?q=${encodeURIComponent(query)}`);
+      const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}`);
       const json = await res.json();
 
       if (json.status === 'cached' || json.status === 'done') {
@@ -507,7 +508,7 @@ function Analytics() {
 
       pollerRef.current = setInterval(async () => {
         try {
-          const pollRes = await fetch(`http://localhost:5000/api/search/status/${jobId}`);
+          const pollRes = await fetch(`${API_BASE}/search/status/${jobId}`);
           const pollJson = await pollRes.json();
           if (pollJson.status === 'done') {
             setData(pollJson.payload); stopPolling();

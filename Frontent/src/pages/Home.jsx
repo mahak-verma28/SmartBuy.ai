@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import './Home.css';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { API_BASE } from '../config';
 
 // SVG Icons
 const SearchIcon = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>;
@@ -31,7 +32,7 @@ function Home() {
 
   const fetchHistory = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/history', {
+      const res = await fetch(`${API_BASE}/history`, {
         headers: { 'Authorization': `Bearer ${user.token}` }
       });
       if (res.ok) {
@@ -51,7 +52,7 @@ function Home() {
     }
     setIsSearching(true);
     try {
-      const res = await fetch('http://localhost:5000/api/history', {
+      const res = await fetch(`${API_BASE}/history`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { API_BASE } from '../config';
 import './Wishlist.css';
 import './Home.css'; // Leverage existing header/footer styles
 
@@ -23,7 +24,7 @@ function Wishlist() {
     
     const fetchWishlist = async () => {
       try {
-        const res = await fetch('http://localhost:5000/api/wishlist', {
+      const res = await fetch(`${API_BASE}/wishlist`, {
           headers: {
             'Authorization': `Bearer ${user.token}`
           }
@@ -48,7 +49,7 @@ function Wishlist() {
     setAdding(true);
 
     try {
-      const res = await fetch('http://localhost:5000/api/wishlist', {
+      const res = await fetch(`${API_BASE}/wishlist`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -71,7 +72,7 @@ function Wishlist() {
 
   const handleRemove = async (id) => {
     try {
-      const res = await fetch(`http://localhost:5000/api/wishlist/${id}`, {
+      const res = await fetch(`${API_BASE}/wishlist/${id}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${user.token}`
